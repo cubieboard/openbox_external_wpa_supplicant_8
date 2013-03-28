@@ -55,11 +55,44 @@ static void p2p_expire_peers(struct p2p_data *p2p)
 {
 	struct p2p_device *dev, *n;
 	struct os_time now;
+	size_t i;
 
 	os_get_time(&now);
 	dl_list_for_each_safe(dev, n, &p2p->devices, struct p2p_device, list) {
 		if (dev->last_seen.sec + P2P_PEER_EXPIRATION_AGE >= now.sec)
 			continue;
+#if defined(RTL_USB_WIFI_USED) || defined(BCM40181_SDIO_WIFI_USED)
+
+		wpa_printf(MSG_INFO, "%s check for device_name:%s, p2p_dev_addr:" MACSTR, __FUNCTION__
+			, dev->info.device_name
+			, MAC2STR(dev->info.p2p_device_addr)
+		);
+
+		if (p2p->cfg->go_connected &&
+		    p2p->cfg->go_connected(p2p->cfg->cb_ctx,
+					   dev->info.p2p_device_addr)) {
+			/*
+			 * We are connected as a client to a group in which the
+			 * peer is the GO, so do not expire the peer entry.
+			 */
+			os_get_time(&dev->last_seen);
+			continue;
+		}
+
+		for (i = 0; i < p2p->num_groups; i++) {			
+			if (p2p_group_is_client_connected(
+				    p2p->groups[i], dev->info.p2p_device_addr))
+				break;
+		}
+		if (i < p2p->num_groups) {
+			/*
+			 * The peer is connected as a client in a group where
+			 * we are the GO, so do not expire the peer entry.
+			 */
+			os_get_time(&dev->last_seen);
+			continue;
+		}
+#endif  // defined(RTL_USB_WIFI_USED) || defined(BCM40181_SDIO_WIFI_USED)
 		wpa_msg(p2p->cfg->msg_ctx, MSG_DEBUG, "P2P: Expiring old peer "
 			"entry " MACSTR, MAC2STR(dev->info.p2p_device_addr));
 		dl_list_del(&dev->list);
@@ -144,6 +177,10 @@ void p2p_go_neg_failed(struct p2p_data *p2p, struct p2p_device *peer,
 	struct p2p_go_neg_results res;
 	p2p_clear_timeout(p2p);
 	p2p_set_state(p2p, P2P_IDLE);
+#if defined(BCM40181_SDIO_WIFI_USED)
+	if (p2p->go_neg_peer)
+		p2p->go_neg_peer->wps_method = WPS_NOT_READY;
+#endif	
 	p2p->go_neg_peer = NULL;
 
 	os_memset(&res, 0, sizeof(res));
@@ -219,6 +256,14 @@ int p2p_listen(struct p2p_data *p2p, unsigned int timeout)
 	p2p->pending_listen_usec = (timeout % 1000) * 1000;
 
 	if (p2p->p2p_scan_running) {
+#if defined(BCM40181_SDIO_WIFI_USED)
+		if (p2p->start_after_scan == P2P_AFTER_SCAN_CONNECT) {
+			wpa_msg(p2p->cfg->msg_ctx, MSG_DEBUG,
+				"P2P: p2p_scan running - connect is already "
+				"pending - skip listen");
+			return 0;
+		}
+#endif		
 		wpa_msg(p2p->cfg->msg_ctx, MSG_DEBUG,
 			"P2P: p2p_scan running - delay start of listen state");
 		p2p->start_after_scan = P2P_AFTER_SCAN_LISTEN;
@@ -363,8 +408,13 @@ static int p2p_add_group_clients(struct p2p_data *p2p, const u8 *go_dev_addr,
 	 * group, the information will be restored in the loop following this.
 	 */
 	dl_list_for_each(dev, &p2p->devices, struct p2p_device, list) {
+#if defined(BCM40181_SDIO_WIFI_USED)
+		if (os_memcmp(dev->member_in_go_iface, go_interface_addr,
+			      ETH_ALEN) == 0) {
+#else
 		if (os_memcpy(dev->member_in_go_iface, go_interface_addr,
 			      ETH_ALEN) == 0) {
+#endif // BCM40181_SDIO_WIFI_USED
 			os_memset(dev->member_in_go_iface, 0, ETH_ALEN);
 			os_memset(dev->member_in_go_dev, 0, ETH_ALEN);
 		}
@@ -372,6 +422,16 @@ static int p2p_add_group_clients(struct p2p_data *p2p, const u8 *go_dev_addr,
 
 	for (c = 0; c < info.num_clients; c++) {
 		struct p2p_client_info *cli = &info.client[c];
+#if defined(BCM40181_SDIO_WIFI_USED)
+#ifdef ANDROID_BRCM_P2P_PATCH
+		if (os_memcmp(cli->p2p_device_addr, p2p->cfg->p2p_dev_addr,
+			      ETH_ALEN) == 0)
+#else
+		if (os_memcmp(cli->p2p_device_addr, p2p->cfg->dev_addr,
+			      ETH_ALEN) == 0)
+#endif //ANDROID_BRCM_P2P_PATCH
+			continue; /* ignore our own entry */
+#endif //BCM40181_SDIO_WIFI_USED		
 		dev = p2p_get_device(p2p, cli->p2p_device_addr);
 		if (dev) {
 			/*
@@ -384,6 +444,14 @@ static int p2p_add_group_clients(struct p2p_data *p2p, const u8 *go_dev_addr,
 			if (dev->flags & P2P_DEV_PROBE_REQ_ONLY) {
 				dev->flags &= ~P2P_DEV_PROBE_REQ_ONLY;
 			}
+#if defined(BCM40181_SDIO_WIFI_USED)			
+			if (!(dev->flags & P2P_DEV_REPORTED)) {
+				p2p->cfg->dev_found(p2p->cfg->cb_ctx,
+						    dev->info.p2p_device_addr,
+						    &dev->info, 0);
+				dev->flags |= P2P_DEV_REPORTED;
+			}
+#endif //BCM40181_SDIO_WIFI_USED
 		} else {
 			dev = p2p_create_device(p2p, cli->p2p_device_addr);
 			if (dev == NULL)
@@ -1076,6 +1144,9 @@ int p2p_connect(struct p2p_data *p2p, const u8 *peer_addr,
 		 */
 	}
 
+#if defined(BCM40181_SDIO_WIFI_USED)
+	p2p_go_req_sent_clear();
+#endif //BCM40181_SDIO_WIFI_USED
 	dev->flags &= ~P2P_DEV_NOT_YET_READY;
 	dev->flags &= ~P2P_DEV_USER_REJECTED;
 	dev->flags &= ~P2P_DEV_WAIT_GO_NEG_RESPONSE;
@@ -1196,7 +1267,11 @@ void p2p_add_dev_info(struct p2p_data *p2p, const u8 *addr,
 				msg->listen_channel[2],
 				msg->listen_channel[3],
 				msg->listen_channel[4]);
+#if defined(RTL_USB_WIFI_USED)
+		} else if(dev->listen_freq != freq){
+#else
 		} else {
+#endif
 			wpa_msg(p2p->cfg->msg_ctx, MSG_DEBUG, "P2P: Update "
 				"peer " MACSTR " Listen channel: %u -> %u MHz",
 				MAC2STR(dev->info.p2p_device_addr),
@@ -1514,6 +1589,10 @@ static void p2p_add_dev_from_probe_req(struct p2p_data *p2p, const u8 *addr,
 	if (dev) {
 		if (dev->country[0] == 0 && msg.listen_channel)
 			os_memcpy(dev->country, msg.listen_channel, 3);
+			
+#if defined(BCM40181_SDIO_WIFI_USED)			
+		os_get_time(&dev->last_seen);
+#endif 			
 		p2p_parse_free(&msg);
 		return; /* already known */
 	}
@@ -1768,8 +1847,13 @@ int p2p_probe_req_rx(struct p2p_data *p2p, const u8 *addr, const u8 *ie,
 
 	if ((p2p->state == P2P_CONNECT || p2p->state == P2P_CONNECT_LISTEN) &&
 	    p2p->go_neg_peer &&
+#if defined(BCM40181_SDIO_WIFI_USED)
+	    (os_memcmp(addr, p2p->go_neg_peer->info.p2p_device_addr, ETH_ALEN)
+	    == 0) && !p2p_go_req_sent_get()) {
+#else
 	    os_memcmp(addr, p2p->go_neg_peer->info.p2p_device_addr, ETH_ALEN)
 	    == 0) {
+#endif //BCM40181_SDIO_WIFI_USED
 		/* Received a Probe Request from GO Negotiation peer */
 		wpa_msg(p2p->cfg->msg_ctx, MSG_DEBUG,
 			"P2P: Found GO Negotiation peer - try to start GO "
@@ -2564,6 +2648,22 @@ void p2p_send_action_cb(struct p2p_data *p2p, unsigned int freq, const u8 *dst,
 	}
 }
 
+#if defined(BCM40181_SDIO_WIFI_USED)
+void p2p_dummy_listen_cb(struct p2p_data *p2p, unsigned int freq,
+		   unsigned int duration)
+{
+	wpa_msg(p2p->cfg->msg_ctx, MSG_DEBUG,
+		"P2P: Starting Dummy Listen timeout(%u,%u) on freq=%u based on "
+		"callback",
+		duration / 1000, (duration % 1000) * 1000,
+		freq);
+	/*
+	 * Add 20 msec extra wait for the same timing as p2p_listen_cb().
+	 */
+	p2p_set_timeout(p2p, duration / 1000,
+			(duration % 1000) * 1000 + 20000);
+}
+#endif //BCM40181_SDIO_WIFI_USED
 
 void p2p_listen_cb(struct p2p_data *p2p, unsigned int freq,
 		   unsigned int duration)

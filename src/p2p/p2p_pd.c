@@ -112,7 +112,11 @@ void p2p_process_prov_disc_req(struct p2p_data *p2p, const u8 *sa,
 		MAC2STR(sa), msg.wps_config_methods, rx_freq);
 
 	dev = p2p_get_device(p2p, sa);
+#if defined(RTL_USB_WIFI_USED)
+	if (dev == NULL || (dev->flags & P2P_DEV_PROBE_REQ_ONLY)) {
+#else
 	if (dev == NULL || !(dev->flags & P2P_DEV_PROBE_REQ_ONLY)) {
+#endif
 		wpa_msg(p2p->cfg->msg_ctx, MSG_DEBUG,
 			"P2P: Provision Discovery Request from "
 			"unknown peer " MACSTR, MAC2STR(sa));
@@ -397,6 +401,22 @@ int p2p_prov_disc_req(struct p2p_data *p2p, const u8 *peer_addr,
 
 void p2p_reset_pending_pd(struct p2p_data *p2p)
 {
+#if defined(BCM40181_SDIO_WIFI_USED)
+	struct p2p_device *dev;
+
+	dl_list_for_each(dev, &p2p->devices, struct p2p_device, list) {
+		if (os_memcmp(p2p->pending_pd_devaddr,
+			      dev->info.p2p_device_addr, ETH_ALEN))
+			continue;
+		if (!dev->req_config_methods)
+			continue;
+		if (dev->flags & P2P_DEV_PD_FOR_JOIN)
+			continue;
+		/* Reset the config methods of the device */
+		dev->req_config_methods = 0;
+	}
+#endif
+	
 	p2p->user_initiated_pd = 0;
 	os_memset(p2p->pending_pd_devaddr, 0, ETH_ALEN);
 	p2p->pd_retries = 0;

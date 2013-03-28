@@ -1609,7 +1609,13 @@ void wpa_supplicant_select_network(struct wpa_supplicant *wpa_s,
 
 	struct wpa_ssid *other_ssid;
 
+#if defined(RTL_USB_WIFI_USED)
+	if (ssid 
+		//&& ssid != wpa_s->current_ssid 
+		&& wpa_s->current_ssid)
+#else
 	if (ssid && ssid != wpa_s->current_ssid && wpa_s->current_ssid)
+#endif
 		wpa_supplicant_disassociate(
 			wpa_s, WLAN_REASON_DEAUTH_LEAVING);
 

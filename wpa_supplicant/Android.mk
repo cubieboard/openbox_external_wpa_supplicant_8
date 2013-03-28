@@ -31,6 +31,52 @@ include $(LOCAL_PATH)/.config
 # To ignore possible wrong network configurations
 L_CFLAGS = -DWPA_IGNORE_CONFIG_ERRORS
 
+# sw define: nano sdio wifi module
+ifeq ($(SW_BOARD_USR_WIFI), nanowifi)
+L_CFLAGS += -DNANO_SDIO_WIFI_USED
+endif
+
+# sw define: ralink usb wifi module
+ifeq ($(SW_BOARD_USR_WIFI), rt5370)
+L_CFLAGS += -DRAL_USB_WIFI_USED
+endif
+
+# sw define: realtek usb wifi module
+ifeq ($(SW_BOARD_USR_WIFI), rtl8192cu)
+L_CFLAGS += -DRTL_USB_WIFI_USED
+endif
+
+# sw define: realtek rtl8188eu usb wifi module
+ifeq ($(SW_BOARD_USR_WIFI), rtl8188eu)
+L_CFLAGS += -DRTL_USB_WIFI_USED
+endif
+
+# sw define: realtek rtl8189es sdio wifi module
+ifeq ($(SW_BOARD_USR_WIFI), rtl8189es)
+L_CFLAGS += -DRTL_USB_WIFI_USED
+endif
+
+# sw define: realtek sdio wifi module,same with rtl8192cu
+ifeq ($(SW_BOARD_USR_WIFI), rtl8723as)
+L_CFLAGS += -DRTL_USB_WIFI_USED
+endif
+
+# sw define: bcm40181 sdio wifi module
+ifeq ($(SW_BOARD_USR_WIFI), bcm40181)
+L_CFLAGS += -DBCM4018X_SDIO_WIFI_USED
+L_CFLAGS += -DBCM40181_SDIO_WIFI_USED
+endif
+
+# sw define: bcm40183 wifi+bt module
+ifeq ($(SW_BOARD_USR_WIFI), bcm40183)
+L_CFLAGS += -DBCM4018X_SDIO_WIFI_USED
+endif
+
+# sw define: default use 256bit PSK instead of origin code(8-32char)
+ifeq ($(SW_WPA_SUPPLICANT_PSK_CLEAR),)
+L_CFLAGS += -DCONFIG_ANDROID_PSK_ENCREPTION
+endif
+
 # Set Android log name
 L_CFLAGS += -DANDROID_LOG_NAME=\"wpa_supplicant\"
 

@@ -130,6 +130,9 @@ void wpa_supplicant_mark_disassoc(struct wpa_supplicant *wpa_s)
 	bssid_changed = !is_zero_ether_addr(wpa_s->bssid);
 	os_memset(wpa_s->bssid, 0, ETH_ALEN);
 	os_memset(wpa_s->pending_bssid, 0, ETH_ALEN);
+#ifdef CONFIG_P2P
+	os_memset(wpa_s->go_dev_addr, 0, ETH_ALEN);
+#endif /* CONFIG_P2P */
 	wpa_s->current_bss = NULL;
 	wpa_s->assoc_freq = 0;
 #ifdef CONFIG_IEEE80211R
@@ -592,7 +595,11 @@ static struct wpa_ssid * wpa_scan_res_match(struct wpa_supplicant *wpa_s,
 			continue;
 		}
 
-		if (bss->caps & IEEE80211_CAP_IBSS) {
+		if ((bss->caps & IEEE80211_CAP_IBSS)
+#ifdef ANDROID_IBSS_HACK
+			&& (ssid->mode != WPAS_MODE_IBSS)
+#endif
+			) {
 			wpa_dbg(wpa_s, MSG_DEBUG, "   skip - IBSS (adhoc) "
 				"network");
 			continue;

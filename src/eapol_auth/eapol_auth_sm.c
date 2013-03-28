@@ -191,8 +191,11 @@ static void eapol_port_timers_tick(void *eloop_ctx, void *timeout_ctx)
 	}
 
 	eapol_sm_step_run(state);
-
+#if defined(BCM40181_SDIO_WIFI_USED)
+	eloop_register_timeout(3, 0, eapol_port_timers_tick, eloop_ctx, state);
+#else
 	eloop_register_timeout(1, 0, eapol_port_timers_tick, eloop_ctx, state);
+#endif //BCM40181_SDIO_WIFI_USED
 }
 
 

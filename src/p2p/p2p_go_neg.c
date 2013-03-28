@@ -185,6 +185,26 @@ static struct wpabuf * p2p_build_go_neg_req(struct p2p_data *p2p,
 	return buf;
 }
 
+#if defined(BCM40181_SDIO_WIFI_USED)
+static int p2p_go_req_sent = 0;
+int p2p_go_req_sent_get()
+{
+	return p2p_go_req_sent;
+}
+
+void p2p_go_req_sent_clear()
+{
+	eloop_cancel_timeout(p2p_go_req_sent_clear, NULL, NULL);
+	p2p_go_req_sent = 0;
+}
+
+static void p2p_go_req_sent_already()
+{
+	eloop_cancel_timeout(p2p_go_req_sent_clear, NULL, NULL);
+	p2p_go_req_sent = 1;
+	eloop_register_timeout(5, 0, p2p_go_req_sent_clear, NULL, NULL);
+}
+#endif // BCM40181_SDIO_WIFI_USED
 
 int p2p_connect_send(struct p2p_data *p2p, struct p2p_device *dev)
 {
@@ -205,6 +225,9 @@ int p2p_connect_send(struct p2p_data *p2p, struct p2p_device *dev)
 		return -1;
 	wpa_msg(p2p->cfg->msg_ctx, MSG_DEBUG,
 		"P2P: Sending GO Negotiation Request");
+#if defined(BCM40181_SDIO_WIFI_USED)
+	p2p_go_req_sent_already();
+#endif
 	p2p_set_state(p2p, P2P_CONNECT);
 	p2p->pending_action_state = P2P_PENDING_GO_NEG_REQUEST;
 	p2p->go_neg_peer = dev;
@@ -436,7 +459,11 @@ void p2p_process_go_neg_req(struct p2p_data *p2p, const u8 *sa,
 
 	if (dev == NULL)
 		dev = p2p_add_dev_from_go_neg_req(p2p, sa, &msg);
+#if defined(RTL_USB_WIFI_USED)
+	else
+#else
 	else if (dev->flags & P2P_DEV_PROBE_REQ_ONLY)
+#endif
 		p2p_add_dev_info(p2p, sa, dev, &msg);
 	if (dev && dev->flags & P2P_DEV_USER_REJECTED) {
 		wpa_msg(p2p->cfg->msg_ctx, MSG_DEBUG,
@@ -503,8 +530,16 @@ void p2p_process_go_neg_req(struct p2p_data *p2p, const u8 *sa,
 			wpa_msg(p2p->cfg->msg_ctx, MSG_DEBUG,
 				"P2P: Do not reply since peer has higher "
 				"address and GO Neg Request already sent");
+#if defined(BCM40181_SDIO_WIFI_USED)
+			// WAR IOT with SII GB
+			// Sometimes SII GB will send GO Neg Request instead of Response,
+			// even if we started GO Neg.  Do not drop the packet in this case.
+			//p2p_parse_free(&msg);
+			//return;
+#else
 			p2p_parse_free(&msg);
 			return;
+#endif // BCM40181_SDIO_WIFI_USED
 		}
 
 		go = p2p_go_det(p2p->go_intent, *msg.go_intent);

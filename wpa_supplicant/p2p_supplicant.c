@@ -997,6 +997,12 @@ static void wpas_p2p_clone_config(struct wpa_supplicant *dst,
 	d->p2p_intra_bss = s->p2p_intra_bss;
 }
 
+#if defined(BCM40181_SDIO_WIFI_USED)
+#define LIMITED_P2P_IFACE
+#ifdef LIMITED_P2P_IFACE
+#define MAX_P2P_IFACE_NUM 3
+#endif
+#endif //BCM40181_SDIO_WIFI_USED
 
 static int wpas_p2p_add_group_interface(struct wpa_supplicant *wpa_s,
 					enum wpa_driver_if_type type)
@@ -1036,7 +1042,15 @@ static int wpas_p2p_add_group_interface(struct wpa_supplicant *wpa_s,
 
 	wpa_printf(MSG_DEBUG, "P2P: Create a new interface %s for the group",
 		   ifname);
+#if defined(BCM40181_SDIO_WIFI_USED)
+#ifdef LIMITED_P2P_IFACE
+	wpa_s->p2p_group_idx = (wpa_s->p2p_group_idx + 1) % MAX_P2P_IFACE_NUM;
+#else
 	wpa_s->p2p_group_idx++;
+#endif //LIMITED_P2P_IFACE
+#else
+	wpa_s->p2p_group_idx++;
+#endif //BCM40181_SDIO_WIFI_USED
 
 	wpa_s->pending_interface_type = type;
 	if (wpa_drv_if_add(wpa_s, type, ifname, NULL, NULL, force_ifname,
@@ -1236,12 +1250,40 @@ static void wpas_dev_lost(void *ctx, const u8 *dev_addr)
 	wpas_notify_p2p_device_lost(wpa_s, dev_addr);
 }
 
-
+#if defined(BCM40181_SDIO_WIFI_USED)
+#define P2P_GO_DONT_LISTEN
+#endif
 static int wpas_start_listen(void *ctx, unsigned int freq,
 			     unsigned int duration,
 			     const struct wpabuf *probe_resp_ie)
 {
 	struct wpa_supplicant *wpa_s = ctx;
+
+#if defined(BCM40181_SDIO_WIFI_USED)
+#if defined(P2P_GO_DONT_LISTEN) || defined(P2P_GC_DONT_LISTEN)
+	struct wpa_supplicant *ifs;
+
+	for (ifs = wpa_s->global->ifaces; ifs; ifs = ifs->next) {
+		wpa_printf(MSG_DEBUG, "%s(): ifs=%p, ifs->p2p_group_interface=%d", __FUNCTION__, ifs, ifs->p2p_group_interface);
+#if defined(P2P_GO_DONT_LISTEN)
+		if (ifs->p2p_group_interface == P2P_GROUP_INTERFACE_GO) {
+			break;
+		}
+#endif
+#if defined(P2P_GC_DONT_LISTEN)
+		if (ifs->p2p_group_interface == P2P_GROUP_INTERFACE_CLIENT) {
+			break;
+		}
+#endif
+	}
+	if (ifs) {
+		wpa_printf(MSG_DEBUG, "%s(): %s skipped listen", __FUNCTION__,
+			(ifs->p2p_group_interface == P2P_GROUP_INTERFACE_GO) ? "GO" : "GC");
+		p2p_dummy_listen_cb(wpa_s->global->p2p, freq, duration);
+		return 0;
+	}
+#endif
+#endif //BCM40181_SDIO_WIFI_USED
 
 	wpa_drv_set_ap_wps_ie(wpa_s, NULL, probe_resp_ie, NULL);
 
@@ -2369,6 +2411,48 @@ static int wpas_get_noa(void *ctx, const u8 *interface_addr, u8 *buf,
 	return wpa_drv_get_noa(wpa_s, buf, buf_len);
 }
 
+#if defined(RTL_USB_WIFI_USED)
+static int wpas_go_connected(void *ctx, const u8 *dev_addr)
+{
+	struct wpa_supplicant *wpa_s = ctx;
+
+	for (wpa_s = wpa_s->global->ifaces; wpa_s; wpa_s = wpa_s->next) {
+		struct wpa_ssid *ssid = wpa_s->current_ssid;
+		if (ssid == NULL)
+			continue;
+		if (ssid->mode != WPAS_MODE_INFRA)
+			continue;
+		if (wpa_s->wpa_state != WPA_COMPLETED)
+			continue;
+		if (os_memcmp(wpa_s->go_dev_addr, dev_addr, ETH_ALEN) == 0)
+			return 1;
+	}
+
+	return 0;
+}
+#endif
+
+#if defined(BCM40181_SDIO_WIFI_USED)
+static int wpas_go_connected(void *ctx, const u8 *dev_addr)
+{
+	struct wpa_supplicant *wpa_s = ctx;
+
+	for (wpa_s = wpa_s->global->ifaces; wpa_s; wpa_s = wpa_s->next) {
+		struct wpa_ssid *ssid = wpa_s->current_ssid;
+		if (ssid == NULL)
+			continue;
+		if (ssid->mode != WPAS_MODE_INFRA)
+			continue;
+		if (wpa_s->wpa_state != WPA_COMPLETED &&
+		    wpa_s->wpa_state != WPA_GROUP_HANDSHAKE)
+			continue;
+		if (os_memcmp(wpa_s->go_dev_addr, dev_addr, ETH_ALEN) == 0)
+			return 1;
+	}
+
+	return 0;
+}
+#endif
 
 /**
  * wpas_p2p_init - Initialize P2P module for %wpa_supplicant
@@ -2444,6 +2528,9 @@ int wpas_p2p_init(struct wpa_global *global, struct wpa_supplicant *wpa_s)
 	p2p.invitation_received = wpas_invitation_received;
 	p2p.invitation_result = wpas_invitation_result;
 	p2p.get_noa = wpas_get_noa;
+#if defined(RTL_USB_WIFI_USED) || defined(BCM40181_SDIO_WIFI_USED)
+	p2p.go_connected = wpas_go_connected;
+#endif
 
 #ifdef ANDROID_BRCM_P2P_PATCH
 	/* P2P_ADDR: Using p2p_dev_addr to hold the actual p2p device address incase if
@@ -4427,6 +4514,10 @@ int wpas_p2p_cancel(struct wpa_supplicant *wpa_s)
 			break;
 		}
 	}
+
+#if defined(BCM40181_SDIO_WIFI_USED)
+	p2p_go_req_sent_clear();
+#endif
 
 	if (!found) {
 		wpa_printf(MSG_DEBUG, "P2P: No ongoing group formation found");

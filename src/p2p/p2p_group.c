@@ -319,7 +319,9 @@ int p2p_group_notif_assoc(struct p2p_group *group, const u8 *addr,
 			  const u8 *ie, size_t len)
 {
 	struct p2p_group_member *m;
-
+#if defined(RTL_USB_WIFI_USED) || defined(BCM40181_SDIO_WIFI_USED)
+	struct p2p_device *dev = NULL;
+#endif // defined(RTL_USB_WIFI_USED) || defined(BCM40181_SDIO_WIFI_USED)
 	if (group == NULL)
 		return -1;
 
@@ -332,8 +334,72 @@ int p2p_group_notif_assoc(struct p2p_group *group, const u8 *addr,
 		m->client_info = p2p_build_client_info(addr, m->p2p_ie,
 						       &m->dev_capab,
 						       m->dev_addr);
+#if defined(BCM40181_SDIO_WIFI_USED) || defined(BCM40181_SDIO_WIFI_USED)
+		dev = p2p_get_device(group->p2p, m->dev_addr);
+		if (dev == NULL) {
+			wpa_msg(group->p2p->cfg->msg_ctx, MSG_DEBUG, "P2P: Cannot find client device "
+				MACSTR " in group", MAC2STR(m->dev_addr));
+		} else {
+			wpa_msg(group->p2p->cfg->msg_ctx, MSG_DEBUG, "P2P: Set client device "
+				MACSTR " interface addr to " MACSTR, MAC2STR(m->dev_addr), MAC2STR(m->addr));
+			os_memcpy(dev->interface_addr, addr, ETH_ALEN);
+		}						       
+#endif //defined(BCM40181_SDIO_WIFI_USED) || defined(BCM40181_SDIO_WIFI_USED)						       
+	}
+#if defined(RTL_USB_WIFI_USED)
+	//patched by george@20120305
+	if(m->dev_addr)
+	{
+		printf("%s-1\n", __func__);
+
+		dev = p2p_get_device(group->p2p, m->dev_addr);
+	}
+	else if(m->addr)
+	{
+		printf("%s-2\n", __func__);
+
+		dev = p2p_get_device(group->p2p, m->addr);
+	}
+	else
+	{
+		printf("addr==NULL\n");
 	}
 
+	if(dev)
+	{
+		u8 *paddr = NULL;
+		
+		printf("got dev, got interface_addr=" MACSTR", intended_addr=" MACSTR  "\n", MAC2STR(dev->interface_addr), MAC2STR(dev->intended_addr));
+
+		if(m->addr)
+			paddr = m->addr;
+		else
+			paddr = m->dev_addr;
+
+		if(paddr)
+		{
+			if(os_memcmp(paddr, dev->intended_addr, ETH_ALEN))
+			{
+				os_memcpy(dev->intended_addr, paddr, ETH_ALEN);
+
+				printf("got dev, set intended_addr=" MACSTR  "\n", MAC2STR(dev->intended_addr));
+			}
+
+			if(os_memcmp(paddr, dev->interface_addr, ETH_ALEN))
+			{
+				os_memcpy(dev->interface_addr, paddr, ETH_ALEN);
+
+				printf("got dev, set interface_addr=" MACSTR  "\n", MAC2STR(dev->interface_addr));
+			}
+		}
+		
+	}
+	else
+	{
+		printf("dev==NULL\n");
+	}
+#endif
+	 
 	m->next = group->members;
 	group->members = m;
 	group->num_members++;
@@ -693,3 +759,25 @@ const u8 * p2p_iterate_group_members(struct p2p_group *group, void **next)
 
 	return iter->addr;
 }
+#if defined(RTL_USB_WIFI_USED) || defined(BCM40181_SDIO_WIFI_USED)
+int p2p_group_is_client_connected(struct p2p_group *group, const u8 *dev_addr)
+{
+	struct p2p_group_member *m;
+
+	wpa_printf(MSG_INFO, "%s group ssid:%s", __FUNCTION__
+		, group->p2p->ssid
+	);
+
+	for (m = group->members; m; m = m->next) {
+		
+		wpa_printf(MSG_INFO, "%s addr: " MACSTR " dev_addr:" MACSTR, __FUNCTION__
+			, MAC2STR(m->addr)
+			, MAC2STR(m->dev_addr)
+		);
+		if (os_memcmp(m->dev_addr, dev_addr, ETH_ALEN) == 0)
+			return 1;
+	}
+
+	return 0;
+}
+#endif  // defined(RTL_USB_WIFI_USED) || defined(BCM40181_SDIO_WIFI_USED)

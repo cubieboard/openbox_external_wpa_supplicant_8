@@ -600,6 +600,10 @@ void p2p_process_go_neg_conf(struct p2p_data *p2p, const u8 *sa,
 			     const u8 *data, size_t len);
 int p2p_connect_send(struct p2p_data *p2p, struct p2p_device *dev);
 
+#if defined(BCM40181_SDIO_WIFI_USED)
+int p2p_go_req_sent_get();
+#endif
+
 /* p2p_pd.c */
 void p2p_process_prov_disc_req(struct p2p_data *p2p, const u8 *sa,
 			       const u8 *data, size_t len, int rx_freq);

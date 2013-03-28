@@ -710,6 +710,16 @@ struct p2p_config {
 	 * local failure in transmitting the Invitation Request.
 	 */
 	void (*invitation_result)(void *ctx, int status, const u8 *bssid);
+#if defined(RTL_USB_WIFI_USED)  || defined(BCM40181_SDIO_WIFI_USED)
+	/**
+	 * go_connected - Check whether we are connected to a GO
+	 * @ctx: Callback context from cb_ctx
+	 * @dev_addr: P2P Device Address of a GO
+	 * Returns: 1 if we are connected as a P2P client to the specified GO
+	 * or 0 if not.
+	 */
+	int (*go_connected)(void *ctx, const u8 *dev_addr);
+#endif  // defined(RTL_USB_WIFI_USED)  || defined(BCM40181_SDIO_WIFI_USED)
 };
 
 
@@ -864,6 +874,10 @@ int p2p_connect(struct p2p_data *p2p, const u8 *peer_addr,
 		enum p2p_wps_method wps_method,
 		int go_intent, const u8 *own_interface_addr,
 		unsigned int force_freq, int persistent_group);
+		
+#if defined(BCM40181_SDIO_WIFI_USED)
+void p2p_go_req_sent_clear();
+#endif
 
 /**
  * p2p_authorize - Authorize P2P group formation (GO negotiation)
@@ -1129,6 +1143,20 @@ enum p2p_send_action_result {
 void p2p_send_action_cb(struct p2p_data *p2p, unsigned int freq, const u8 *dst,
 			const u8 *src, const u8 *bssid,
 			enum p2p_send_action_result result);
+
+#if defined(BCM40181_SDIO_WIFI_USED)
+/**
+ * p2p_dummy_listen_cb - Indicate the start of a dummy Listen state
+ * @p2p: P2P module context from p2p_init()
+ * @freq: Listen channel frequency in MHz
+ * @duration: Duration for the Listen state in milliseconds
+ *
+ * This function is used to indicate that a dummy Listen state requested with
+ * struct p2p_config::start_listen() callback has started.
+ */
+void p2p_dummy_listen_cb(struct p2p_data *p2p, unsigned int freq,
+		   unsigned int duration);
+#endif //BCM40181_SDIO_WIFI_USED
 
 /**
  * p2p_listen_cb - Indicate the start of a requested Listen state
@@ -1488,7 +1516,15 @@ unsigned int p2p_get_group_num_members(struct p2p_group *group);
  * Returns: A P2P Interface Address for each call and %NULL for no more members
  */
 const u8 * p2p_iterate_group_members(struct p2p_group *group, void **next);
-
+#if defined(RTL_USB_WIFI_USED) || defined(BCM40181_SDIO_WIFI_USED)
+/**
+ * p2p_group_is_client_connected - Check whether a specific client is connected
+ * @group: P2P group context from p2p_group_init()
+ * @addr: P2P Device Address of the client
+ * Returns: 1 if client is connected or 0 if not
+ */
+int p2p_group_is_client_connected(struct p2p_group *group, const u8 *dev_addr);
+#endif // defined(RTL_USB_WIFI_USED) || defined(BCM40181_SDIO_WIFI_USED)
 /**
  * p2p_get_peer_found - Get P2P peer info structure of a found peer
  * @p2p: P2P module context from p2p_init()
